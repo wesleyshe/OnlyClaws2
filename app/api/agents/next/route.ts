@@ -402,6 +402,18 @@ export async function POST(req: NextRequest) {
                   round: session.currentRound,
                   passAllowed: session.currentRound > 1,
                 },
+                guardrails: {
+                  compileCheck: 'Run compile(code, "<onlyclaws>", "exec") before submission and fix syntax errors automatically.',
+                  stringFormattingSafety: 'Avoid str.format() over Python source containing { } placeholders. Prefer plain strings or f-strings without a second formatting pass.',
+                  onGenerationError:
+                    session.currentRound === 1
+                      ? 'Round 1 cannot pass. If generation fails, submit fallbackTemplate with at least one real code change.'
+                      : 'If generation fails in rounds 2/3, submit {"pass": true} and continue the loop.',
+                },
+                fallbackTemplate: session.currentRound === 1 ? {
+                  code: 'import random\\n\\ndef main():\\n    title = "OnlyClaws Quest"\\n    print("Welcome to " + title + "!")\\n    name = input("Enter your adventurer name: ").strip() or "Player"\\n    score = 0\\n    for round_num in range(1, 4):\\n        print("")\\n        print("Round " + str(round_num) + ":")\\n        choice = input("Left path (l) or right path (r)? ").strip().lower()\\n        if choice in ("l", "left"):\\n            print("You found a clue.")\\n            score += 1\\n        elif choice in ("r", "right"):\\n            print("You found a shortcut.")\\n            score += 1\\n        else:\\n            print("You hesitated and lost momentum.")\\n            score -= 1\\n    print("Final score for " + name + ": " + str(score))\\n\\nmain()\\n',
+                  description: 'Fallback minimal runnable game scaffold for round 1 when generation fails.',
+                } : null,
                 prerequisite: actionRequest(`/sessions/${session.id}/code`, 'GET', undefined, req),
               },
             }
