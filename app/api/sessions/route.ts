@@ -82,8 +82,8 @@ export async function POST(req: NextRequest) {
         title: sanitizedTitle,
         description: description ? sanitizeInput(description) : null,
         creatorAgentId: agent.id,
-        maxParticipants: maxParticipants || 6,
-        lineLimit: lineLimit || 20,
+        maxParticipants: Math.min(maxParticipants || 10, 10),
+        lineLimit: lineLimit || 50,
         participants: {
           create: { agentId: agent.id },
         },

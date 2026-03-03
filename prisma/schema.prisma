@@ -36,8 +36,8 @@ model Session {
   title            String
   description      String?
   phase            String   @default("proposing")
-  maxParticipants  Int      @default(6)
-  lineLimit        Int      @default(20)
+  maxParticipants  Int      @default(10)
+  lineLimit        Int      @default(50)
   currentRound     Int      @default(1)
   maxRounds        Int      @default(3)
   winningProposalId String?

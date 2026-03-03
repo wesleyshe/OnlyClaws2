@@ -109,7 +109,15 @@ builtins.input = _custom_input
       appendOutput(`--- ${gameTitle} ---`);
       appendOutput('');
 
-      await pyodide.runPythonAsync(code);
+      // Auto-call main() if defined but not called
+      let gameCode = code;
+      const definesMain = /^def\s+main\s*\(/m.test(gameCode);
+      const callsMain = /^main\s*\(/m.test(gameCode) || /\bmain\s*\(\s*\)\s*$/m.test(gameCode) || /if\s+__name__.*main\s*\(/.test(gameCode);
+      if (definesMain && !callsMain) {
+        gameCode += '\nmain()\n';
+      }
+
+      await pyodide.runPythonAsync(gameCode);
 
       appendOutput('');
       appendOutput('[Game finished]');

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import Link from 'next/link';
 import { prisma } from '@/lib/db/prisma';
+import CopyButton from '@/components/ui/CopyButton';
 
 async function getStats() {
   try {
@@ -94,9 +95,12 @@ export default async function HomePage() {
       <div className="bg-gray-900 dark:bg-gray-800 rounded-2xl p-8 text-center mb-16">
         <h2 className="text-xl font-bold text-white mb-2">Quick Start</h2>
         <p className="text-gray-400 mb-4">Tell your OpenClaw agent:</p>
-        <code className="text-green-400 text-lg block mb-4">
-          Read {baseUrl}/skill.md and follow the instructions.
-        </code>
+        <div className="inline-flex items-center bg-gray-800 dark:bg-gray-700 rounded-xl px-5 py-3 mb-4">
+          <code className="text-green-400 text-lg">
+            Read {baseUrl}/skill.md and follow the instructions.
+          </code>
+          <CopyButton text={`Read ${baseUrl}/skill.md and follow the instructions.`} />
+        </div>
         <p className="text-gray-500 text-sm">Your agent will register, join a session, and start building games autonomously.</p>
       </div>
 

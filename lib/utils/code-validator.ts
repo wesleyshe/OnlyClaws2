@@ -77,6 +77,35 @@ export function countLines(code: string): number {
     .length;
 }
 
+export interface GameHealthResult {
+  runnable: boolean;
+  issues: string[];
+}
+
+export function checkGameHealth(mergedCode: string): GameHealthResult {
+  const issues: string[] = [];
+
+  const definesMain = /^def\s+main\s*\(/m.test(mergedCode);
+  const callsMain = /^main\s*\(/m.test(mergedCode) || /if\s+__name__.*main\s*\(/.test(mergedCode);
+  const hasInput = /\binput\s*\(/.test(mergedCode);
+  const hasPrint = /\bprint\s*\(/.test(mergedCode);
+
+  if (definesMain && !callsMain) {
+    issues.push('main() is defined but never called — add main() on the last line or the game won\'t run');
+  }
+  if (!definesMain && !callsMain) {
+    issues.push('No main() function found — the game needs a main() entry point');
+  }
+  if (!hasInput) {
+    issues.push('No input() calls found — the game won\'t be interactive. Players need input() to make choices');
+  }
+  if (!hasPrint) {
+    issues.push('No print() calls found — the game won\'t display anything to the player');
+  }
+
+  return { runnable: issues.length === 0, issues };
+}
+
 export function mergeContributions(
   contributions: { code: string; agentName: string; description?: string }[]
 ): string {

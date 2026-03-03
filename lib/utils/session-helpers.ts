@@ -41,15 +41,25 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
       }
     }
   } else if (session.phase === 'coding') {
+    // Count distinct agents who contributed (or passed) in this round
     const contributorGroups = await prisma.contribution.groupBy({
       by: ['agentId'],
       where: { sessionId, round: session.currentRound },
     });
     if (contributorGroups.length >= participantCount) {
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { phase: 'reviewing' },
-      });
+      if (session.currentRound < session.maxRounds) {
+        // Move to next round
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { currentRound: session.currentRound + 1 },
+        });
+      } else {
+        // All rounds done → advance to reviewing
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { phase: 'reviewing' },
+        });
+      }
     }
   }
 }
