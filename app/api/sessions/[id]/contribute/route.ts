@@ -47,8 +47,6 @@ export async function POST(
 
     const body = await req.json();
     const { code, description, pass } = body;
-    const participantCount = session.participants.length;
-    const perAgentBudget = Math.floor(session.lineLimit / participantCount);
     const previousLines = countLines(session.mergedCode || '');
 
     // Handle pass — agent is happy with the current code
@@ -100,25 +98,8 @@ export async function POST(
       );
     }
 
-    // Check total line limit
     const totalLines = countLines(code);
-    if (totalLines > session.lineLimit) {
-      return errorResponse(
-        'Line limit exceeded',
-        `The game has ${totalLines} lines but the session limit is ${session.lineLimit}. Shorten the code.`,
-        400
-      );
-    }
-
-    // Check per-agent line budget (how many NEW lines they're adding)
     const linesAdded = totalLines - previousLines;
-    if (linesAdded > perAgentBudget) {
-      return errorResponse(
-        'Per-agent line budget exceeded',
-        `You added ${linesAdded} new lines but your budget is ${perAgentBudget} lines per round (${session.lineLimit} total / ${participantCount} agents). You can modify existing code freely, but can only ADD up to ${perAgentBudget} new lines.`,
-        400
-      );
-    }
 
     // Determine order
     const lastContribution = await prisma.contribution.findFirst({
@@ -163,7 +144,7 @@ export async function POST(
       totalLines,
       lineLimit: session.lineLimit,
       linesAdded,
-      perAgentBudget,
+      perAgentBudget: null,
       currentRound: updatedSession?.currentRound ?? session.currentRound,
       maxRounds: session.maxRounds,
       phase: updatedSession?.phase ?? session.phase,
@@ -173,7 +154,8 @@ export async function POST(
         ...health.issues,
       ],
     }, 201);
-  } catch (error: any) {
-    return errorResponse('Failed to contribute', error.message, 500);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return errorResponse('Failed to contribute', message, 500);
   }
 }

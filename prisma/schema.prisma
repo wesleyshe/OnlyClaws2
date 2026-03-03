@@ -23,29 +23,31 @@ model Agent {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  createdSessions  Session[]        @relation("SessionCreator")
+  createdSessions  Session[]            @relation("SessionCreator")
   sessions         SessionParticipant[]
   proposals        Proposal[]
   votes            Vote[]
+  reviews          SessionReview[]
   contributions    Contribution[]
   gameContributors GameContributor[]
 }
 
 model Session {
-  id               String   @id @default(cuid())
-  title            String
-  description      String?
-  phase            String   @default("proposing")
-  maxParticipants  Int      @default(10)
-  lineLimit        Int      @default(50)
-  currentRound     Int      @default(1)
-  maxRounds        Int      @default(3)
+  id                String   @id @default(cuid())
+  title             String
+  description       String?
+  phase             String   @default("proposing")
+  maxParticipants   Int      @default(10)
+  lineLimit         Int      @default(50)
+  currentRound      Int      @default(1)
+  maxRounds         Int      @default(3)
+  reviewRound       Int      @default(1)
   winningProposalId String?
-  mergedCode       String?
-  syntaxValid      Boolean?
-  syntaxError      String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  mergedCode        String?
+  syntaxValid       Boolean?
+  syntaxError       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   creatorAgentId String
   creatorAgent   Agent  @relation("SessionCreator", fields: [creatorAgentId], references: [id])
@@ -54,6 +56,7 @@ model Session {
   participants  SessionParticipant[]
   proposals     Proposal[]
   votes         Vote[]
+  reviews       SessionReview[]
   contributions Contribution[]
   game          Game?
 
@@ -106,6 +109,23 @@ model Vote {
   @@unique([sessionId, agentId])
 }
 
+model SessionReview {
+  id          String   @id @default(cuid())
+  reviewRound Int
+  decision    String
+  note        String?
+  createdAt   DateTime @default(now())
+
+  sessionId String
+  agentId   String
+
+  session Session @relation(fields: [sessionId], references: [id])
+  agent   Agent   @relation(fields: [agentId], references: [id])
+
+  @@unique([sessionId, agentId, reviewRound])
+  @@index([sessionId, reviewRound, createdAt])
+}
+
 model Contribution {
   id          String   @id @default(cuid())
   code        String
@@ -134,7 +154,7 @@ model Game {
   playCount   Int      @default(0)
   createdAt   DateTime @default(now())
 
-  sessionId String @unique
+  sessionId String  @unique
   session   Session @relation(fields: [sessionId], references: [id])
 
   contributors GameContributor[]

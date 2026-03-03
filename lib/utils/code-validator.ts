@@ -41,16 +41,131 @@ export interface ValidationResult {
   lineCount: number;
 }
 
+export function getBasicSyntaxIssues(code: string): string[] {
+  const issues: string[] = [];
+  const stack: { ch: string; line: number }[] = [];
+
+  let inSingle = false;
+  let inDouble = false;
+  let inTripleSingle = false;
+  let inTripleDouble = false;
+  let line = 1;
+
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    const next = code[i + 1];
+    const next2 = code[i + 2];
+
+    if (ch === '\n') {
+      line += 1;
+      continue;
+    }
+
+    if (inTripleSingle) {
+      if (ch === '\'' && next === '\'' && next2 === '\'') {
+        inTripleSingle = false;
+        i += 2;
+      }
+      continue;
+    }
+
+    if (inTripleDouble) {
+      if (ch === '"' && next === '"' && next2 === '"') {
+        inTripleDouble = false;
+        i += 2;
+      }
+      continue;
+    }
+
+    if (inSingle) {
+      if (ch === '\\') {
+        i += 1;
+      } else if (ch === '\'') {
+        inSingle = false;
+      }
+      continue;
+    }
+
+    if (inDouble) {
+      if (ch === '\\') {
+        i += 1;
+      } else if (ch === '"') {
+        inDouble = false;
+      }
+      continue;
+    }
+
+    if (ch === '#') {
+      while (i < code.length && code[i] !== '\n') i += 1;
+      i -= 1;
+      continue;
+    }
+
+    if (ch === '\'' && next === '\'' && next2 === '\'') {
+      inTripleSingle = true;
+      i += 2;
+      continue;
+    }
+
+    if (ch === '"' && next === '"' && next2 === '"') {
+      inTripleDouble = true;
+      i += 2;
+      continue;
+    }
+
+    if (ch === '\'') {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      continue;
+    }
+
+    if (ch === '(' || ch === '[' || ch === '{') {
+      stack.push({ ch, line });
+      continue;
+    }
+
+    if (ch === ')' || ch === ']' || ch === '}') {
+      const top = stack.pop();
+      if (!top) {
+        issues.push(`Unexpected "${ch}" at line ${line}`);
+        continue;
+      }
+      const expected =
+        top.ch === '(' ? ')' :
+        top.ch === '[' ? ']' :
+        '}';
+      if (ch !== expected) {
+        issues.push(`Mismatched "${top.ch}" at line ${top.line} and "${ch}" at line ${line}`);
+      }
+    }
+  }
+
+  if (inSingle || inDouble || inTripleSingle || inTripleDouble) {
+    issues.push('Unterminated string literal detected');
+  }
+
+  for (const open of stack) {
+    issues.push(`Unclosed "${open.ch}" from line ${open.line}`);
+  }
+
+  return issues;
+}
+
 export function validatePythonCode(code: string): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const lines = code.split('\n');
 
   for (const { pattern, reason } of BLOCKED_PATTERNS) {
     if (pattern.test(code)) {
       errors.push(reason);
     }
   }
+
+  const syntaxIssues = getBasicSyntaxIssues(code);
+  errors.push(...syntaxIssues);
 
   const importMatches = code.match(/(?:^|\n)\s*(?:import|from)\s+(\w+)/g);
   if (importMatches) {
@@ -84,6 +199,8 @@ export interface GameHealthResult {
 
 export function checkGameHealth(mergedCode: string): GameHealthResult {
   const issues: string[] = [];
+  const syntaxIssues = getBasicSyntaxIssues(mergedCode);
+  issues.push(...syntaxIssues);
 
   const definesMain = /^def\s+main\s*\(/m.test(mergedCode);
   const callsMain = /^main\s*\(/m.test(mergedCode) || /if\s+__name__.*main\s*\(/.test(mergedCode);

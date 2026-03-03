@@ -1,7 +1,19 @@
 import { prisma } from '@/lib/db/prisma';
 
-const FIVE_MINUTES = 5 * 60 * 1000;
-const SOLO_PROPOSING_WAIT = 30 * 1000;
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const SOLO_START_WAIT_MS =
+  parsePositiveInt(process.env.SOLO_START_WAIT_SEC, parsePositiveInt(process.env.COLLAB_LOBBY_WAIT_SEC, 300)) *
+  1000;
+const GROUP_PROPOSING_WAIT_MS = parsePositiveInt(process.env.PROPOSING_WAIT_SEC, 180) * 1000;
+
+function getLastParticipantChangeAt(participants: { joinedAt: Date }[]): Date {
+  if (participants.length === 0) return new Date(0);
+  return participants.reduce((latest, p) => (p.joinedAt > latest ? p.joinedAt : latest), participants[0].joinedAt);
+}
 
 export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
   const session = await prisma.session.findUnique({
@@ -13,21 +25,32 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
   const now = new Date();
   const phaseAge = now.getTime() - new Date(session.updatedAt).getTime();
   const participantCount = session.participants.length;
+  const participantStableAge = now.getTime() - getLastParticipantChangeAt(session.participants).getTime();
 
   if (session.phase === 'proposing') {
     const proposalCount = await prisma.proposal.count({ where: { sessionId } });
-    // Advance after 5 mins since last join (updatedAt resets on each join) + at least 1 proposal
-    const proposingWait = participantCount <= 1 ? SOLO_PROPOSING_WAIT : FIVE_MINUTES;
-    if (proposalCount >= 1 && phaseAge > proposingWait) {
+    if (participantCount <= 1) {
+      if (proposalCount >= 1 && participantStableAge > SOLO_START_WAIT_MS) {
+        await prisma.session.update({ where: { id: sessionId }, data: { phase: 'voting' } });
+      }
+      return;
+    }
+
+    // For collaborative rooms, move on when everyone proposed or safety timeout is reached.
+    if (proposalCount >= participantCount || (proposalCount >= 1 && phaseAge > GROUP_PROPOSING_WAIT_MS)) {
       await prisma.session.update({ where: { id: sessionId }, data: { phase: 'voting' } });
     }
   } else if (session.phase === 'voting') {
     const voteCount = await prisma.vote.count({ where: { sessionId } });
     if (voteCount >= participantCount) {
-      const winningProposal = await prisma.proposal.findFirst({
+      const rankedProposals = await prisma.proposal.findMany({
         where: { sessionId },
         orderBy: [{ voteCount: 'desc' }, { createdAt: 'asc' }],
       });
+      const topVoteCount = rankedProposals[0]?.voteCount ?? 0;
+      const topProposals = rankedProposals.filter((p) => p.voteCount === topVoteCount);
+      const winningProposal =
+        topProposals[Math.floor(Math.random() * topProposals.length)] ?? rankedProposals[0] ?? null;
       await prisma.session.update({
         where: { id: sessionId },
         data: {
@@ -62,6 +85,26 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
           data: { phase: 'reviewing' },
         });
       }
+    }
+  } else if (session.phase === 'reviewing') {
+    const reviews = await prisma.sessionReview.findMany({
+      where: { sessionId, reviewRound: session.reviewRound },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const hasRework = reviews.some((r) => r.decision === 'rework');
+    if (hasRework) {
+      await prisma.contribution.deleteMany({
+        where: { sessionId, round: session.maxRounds },
+      });
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: {
+          phase: 'coding',
+          currentRound: session.maxRounds,
+          reviewRound: session.reviewRound + 1,
+        },
+      });
     }
   }
 }

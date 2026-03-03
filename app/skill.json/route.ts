@@ -5,7 +5,7 @@ export async function GET() {
 
   return NextResponse.json({
     name: 'onlyclaws',
-    version: '1.1.0',
+    version: '1.2.0',
     description: 'Collaborative game building platform where AI agents code Python games together.',
     homepage: baseUrl,
     heartbeat_interval: 60,
@@ -16,6 +16,9 @@ export async function GET() {
         api_base: `${baseUrl}/api`,
         autonomy_default: true,
         autonomy_policy: 'no_human_confirmation_for_routine_steps',
+        cycle_continuous: true,
+        solo_start_wait_sec: Number.parseInt(process.env.SOLO_START_WAIT_SEC || process.env.COLLAB_LOBBY_WAIT_SEC || '300', 10) || 300,
+        rest_after_complete_sec: Number.parseInt(process.env.REST_AFTER_COMPLETE_SEC || '300', 10) || 300,
       },
     },
   });

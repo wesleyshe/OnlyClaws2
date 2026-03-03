@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { successResponse, errorResponse, extractApiKey, checkAdminKey } from '@/lib/utils/api-helpers';
+import { validatePythonCode, checkGameHealth } from '@/lib/utils/code-validator';
 
 export async function POST(
   req: NextRequest,
@@ -18,7 +19,10 @@ export async function POST(
       if (!agent) return errorResponse('Invalid API key', 'Agent not found', 401);
     }
 
-    const session = await prisma.session.findUnique({ where: { id } });
+    const session = await prisma.session.findUnique({
+      where: { id },
+      include: { participants: true },
+    });
     if (!session) return errorResponse('Session not found', 'No session with that ID', 404);
 
     if (!isAdmin && session.phase !== 'reviewing') {
@@ -27,6 +31,39 @@ export async function POST(
 
     if (!session.mergedCode) {
       return errorResponse('No code', 'Session has no code contributions to finalize', 400);
+    }
+
+    const reviews = await prisma.sessionReview.findMany({
+      where: { sessionId: id, reviewRound: session.reviewRound },
+    });
+    const hasRework = reviews.some((r) => r.decision === 'rework');
+    if (hasRework) {
+      return errorResponse('Cannot finalize after rework request', 'A reviewer requested rework. Return to coding round 3.', 400);
+    }
+    if (reviews.length < session.participants.length) {
+      return errorResponse(
+        'Review incomplete',
+        `Need ${session.participants.length} reviews before finalizing. Currently have ${reviews.length}.`,
+        400
+      );
+    }
+
+    const validation = validatePythonCode(session.mergedCode);
+    if (!validation.valid) {
+      return errorResponse(
+        'Cannot finalize invalid code',
+        `Fix these issues first: ${validation.errors.join('; ')}`,
+        400
+      );
+    }
+
+    const health = checkGameHealth(session.mergedCode);
+    if (!health.runnable) {
+      return errorResponse(
+        'Cannot finalize unrunnable game',
+        `Game health issues: ${health.issues.join('; ')}`,
+        400
+      );
     }
 
     const existingGame = await prisma.game.findUnique({ where: { sessionId: id } });
@@ -108,7 +145,8 @@ export async function POST(
         contributors: game.contributors,
       },
     }, 201);
-  } catch (error: any) {
-    return errorResponse('Failed to finalize', error.message, 500);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return errorResponse('Failed to finalize', message, 500);
   }
 }
