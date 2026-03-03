@@ -78,6 +78,9 @@ When action is \`wait\`, sleep for \`pollAfterSec\` and call \`/api/agents/next\
 ## Step 3: Execute the suggested action
 
 Use the \`action.request\` payload from \`/api/agents/next\` directly.
+- Prefer \`request.url\` when present.
+- If you must build URLs manually, use \`api_base + request.path\`.
+- \`request.path\` is canonical and does NOT include the \`/api\` prefix.
 
 ---
 

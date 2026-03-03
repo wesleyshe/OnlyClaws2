@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { successResponse, errorResponse, extractApiKey } from '@/lib/utils/api-helpers';
+import { checkAndAdvancePhase } from '@/lib/utils/session-helpers';
 
 const PROPOSAL_SEEDS = [
   {
@@ -56,6 +57,25 @@ function waitAction(reason: string, pollAfterSec: number, sessionId?: string) {
   };
 }
 
+function getBaseUrl(): string {
+  return process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+}
+
+function actionRequest(path: string, method: 'GET' | 'POST', body?: unknown) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const apiPath = normalizedPath.startsWith('/api/') ? normalizedPath.slice(4) : normalizedPath;
+  const apiBase = `${getBaseUrl()}/api`;
+  return {
+    method,
+    // Canonical fields:
+    path: apiPath,                   // e.g. "/sessions/123/join"
+    url: `${apiBase}${apiPath}`,     // e.g. "https://.../api/sessions/123/join"
+    // Backward compatibility field for older clients:
+    endpoint: `/api${apiPath}`,
+    body: body ?? {},
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = extractApiKey(req.headers.get('authorization'));
@@ -83,7 +103,24 @@ export async function POST(req: NextRequest) {
       take: 10,
     });
 
+    // Keep phase progression moving even when only autonomous agents are polling /agents/next.
     for (const session of activeSessions) {
+      await checkAndAdvancePhase(session.id);
+    }
+
+    const refreshedActiveSessions = await prisma.session.findMany({
+      where: {
+        phase: { in: ['proposing', 'voting', 'coding', 'reviewing'] },
+        participants: { some: { agentId: agent.id } },
+      },
+      include: {
+        participants: true,
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 10,
+    });
+
+    for (const session of refreshedActiveSessions) {
       if (session.phase === 'proposing') {
         const existingProposal = await prisma.proposal.findUnique({
           where: { sessionId_agentId: { sessionId: session.id, agentId: agent.id } },
@@ -97,11 +134,7 @@ export async function POST(req: NextRequest) {
               type: 'submit_proposal',
               reason: 'You are in proposing phase and have not submitted a proposal yet.',
               sessionId: session.id,
-              request: {
-                method: 'POST',
-                endpoint: `/api/sessions/${session.id}/proposals`,
-                body: suggestion,
-              },
+              request: actionRequest(`/sessions/${session.id}/proposals`, 'POST', suggestion),
             },
           });
         }
@@ -137,11 +170,7 @@ export async function POST(req: NextRequest) {
               type: 'cast_vote',
               reason: 'You are in voting phase and have not voted yet.',
               sessionId: session.id,
-              request: {
-                method: 'POST',
-                endpoint: `/api/sessions/${session.id}/vote`,
-                body: { proposalId: preferred.id },
-              },
+              request: actionRequest(`/sessions/${session.id}/vote`, 'POST', { proposalId: preferred.id }),
             },
           });
         }
@@ -165,17 +194,13 @@ export async function POST(req: NextRequest) {
               reason: 'It is coding phase and you have not contributed this round.',
               sessionId: session.id,
               request: {
-                method: 'POST',
-                endpoint: `/api/sessions/${session.id}/contribute`,
+                ...actionRequest(`/sessions/${session.id}/contribute`, 'POST'),
                 bodyHint: {
                   code: 'FULL_UPDATED_GAME_CODE',
                   description: 'What you improved this round',
                   pass: 'Use {"pass": true} if no changes are needed',
                 },
-                prerequisite: {
-                  method: 'GET',
-                  endpoint: `/api/sessions/${session.id}/code`,
-                },
+                prerequisite: actionRequest(`/sessions/${session.id}/code`, 'GET'),
               },
             },
           });
@@ -194,17 +219,13 @@ export async function POST(req: NextRequest) {
             type: 'finalize_game',
             reason: 'Session is ready for finalization.',
             sessionId: session.id,
-            request: {
-              method: 'POST',
-              endpoint: `/api/sessions/${session.id}/finalize`,
-              body: {},
-            },
+            request: actionRequest(`/sessions/${session.id}/finalize`, 'POST'),
           },
         });
       }
     }
 
-    if (activeSessions.length > 0) {
+    if (refreshedActiveSessions.length > 0) {
       return successResponse({
         agent: { id: agent.id, name: agent.name },
         action: waitAction('No immediate action in active sessions.', 20),
@@ -232,11 +253,7 @@ export async function POST(req: NextRequest) {
           type: 'join_session',
           reason: 'A joinable active session exists.',
           sessionId: joinable.id,
-          request: {
-            method: 'POST',
-            endpoint: `/api/sessions/${joinable.id}/join`,
-            body: {},
-          },
+          request: actionRequest(`/sessions/${joinable.id}/join`, 'POST'),
         },
       });
     }
@@ -246,16 +263,12 @@ export async function POST(req: NextRequest) {
       action: {
         type: 'create_session',
         reason: 'No active or joinable sessions found.',
-        request: {
-          method: 'POST',
-          endpoint: '/api/sessions',
-          body: {
-            title: `Game Jam ${new Date().toISOString().slice(0, 10)}`,
-            description: 'Autonomous collaborative game jam session',
-            maxParticipants: 10,
-            lineLimit: 80,
-          },
-        },
+        request: actionRequest('/sessions', 'POST', {
+          title: `Game Jam ${new Date().toISOString().slice(0, 10)}`,
+          description: 'Autonomous collaborative game jam session',
+          maxParticipants: 10,
+          lineLimit: 80,
+        }),
       },
     });
   } catch (error: unknown) {

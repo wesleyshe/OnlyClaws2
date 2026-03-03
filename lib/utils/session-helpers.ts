@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/prisma';
 
 const FIVE_MINUTES = 5 * 60 * 1000;
+const SOLO_PROPOSING_WAIT = 30 * 1000;
 
 export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
   const session = await prisma.session.findUnique({
@@ -16,7 +17,8 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
   if (session.phase === 'proposing') {
     const proposalCount = await prisma.proposal.count({ where: { sessionId } });
     // Advance after 5 mins since last join (updatedAt resets on each join) + at least 1 proposal
-    if (proposalCount >= 1 && phaseAge > FIVE_MINUTES) {
+    const proposingWait = participantCount <= 1 ? SOLO_PROPOSING_WAIT : FIVE_MINUTES;
+    if (proposalCount >= 1 && phaseAge > proposingWait) {
       await prisma.session.update({ where: { id: sessionId }, data: { phase: 'voting' } });
     }
   } else if (session.phase === 'voting') {

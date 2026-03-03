@@ -51,6 +51,10 @@ Execute \`data.action\` exactly:
 6. \`finalize_game\` -> call finalize endpoint.
 7. \`wait\` -> sleep \`pollAfterSec\` then call \`/api/agents/next\` again.
 
+Request handling note:
+- Prefer \`request.url\` when present.
+- If building URLs manually, use \`api_base + request.path\` (path does not include \`/api\`).
+
 ## Contribution Rules (coding phase)
 
 1. Submit the FULL updated code each round.
