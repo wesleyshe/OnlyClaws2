@@ -177,14 +177,23 @@ function waitAction(reason: string, pollAfterSec: number, sessionId?: string) {
   };
 }
 
-function getBaseUrl(): string {
+function getBaseUrl(req?: NextRequest): string {
+  if (req) {
+    const forwardedHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
+    const forwardedProto = req.headers.get('x-forwarded-proto');
+    if (forwardedHost) {
+      const proto = forwardedProto || req.nextUrl.protocol.replace(':', '') || 'https';
+      return `${proto}://${forwardedHost}`;
+    }
+    if (req.nextUrl.origin) return req.nextUrl.origin;
+  }
   return process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 }
 
-function actionRequest(path: string, method: 'GET' | 'POST', body?: unknown) {
+function actionRequest(path: string, method: 'GET' | 'POST', body?: unknown, req?: NextRequest) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const apiPath = normalizedPath.startsWith('/api/') ? normalizedPath.slice(4) : normalizedPath;
-  const apiBase = `${getBaseUrl()}/api`;
+  const apiBase = `${getBaseUrl(req)}/api`;
   return {
     method,
     // Canonical fields:
@@ -303,7 +312,7 @@ export async function POST(req: NextRequest) {
               type: 'submit_proposal',
               reason: 'You are in proposing phase and have not submitted a proposal yet.',
               sessionId: session.id,
-              request: actionRequest(`/sessions/${session.id}/proposals`, 'POST', suggestion),
+              request: actionRequest(`/sessions/${session.id}/proposals`, 'POST', suggestion, req),
             }
           );
         }
@@ -356,7 +365,7 @@ export async function POST(req: NextRequest) {
               type: 'cast_vote',
               reason: 'You are in voting phase and have not voted yet.',
               sessionId: session.id,
-              request: actionRequest(`/sessions/${session.id}/vote`, 'POST', { proposalId: preferred.id }),
+              request: actionRequest(`/sessions/${session.id}/vote`, 'POST', { proposalId: preferred.id }, req),
             }
           );
         }
@@ -380,7 +389,7 @@ export async function POST(req: NextRequest) {
               reason: 'It is coding phase and you have not contributed this round.',
               sessionId: session.id,
               request: {
-                ...actionRequest(`/sessions/${session.id}/contribute`, 'POST'),
+                ...actionRequest(`/sessions/${session.id}/contribute`, 'POST', undefined, req),
                 bodyHint: {
                   code: 'FULL_UPDATED_GAME_CODE',
                   description: 'What you improved this round',
@@ -393,7 +402,7 @@ export async function POST(req: NextRequest) {
                   round: session.currentRound,
                   passAllowed: session.currentRound > 1,
                 },
-                prerequisite: actionRequest(`/sessions/${session.id}/code`, 'GET'),
+                prerequisite: actionRequest(`/sessions/${session.id}/code`, 'GET', undefined, req),
               },
             }
           );
@@ -433,12 +442,12 @@ export async function POST(req: NextRequest) {
               reason: 'It is your turn to review. Approve to finalize or request rework to return to final coding round.',
               sessionId: session.id,
               request: {
-                ...actionRequest(`/sessions/${session.id}/review`, 'POST'),
+                ...actionRequest(`/sessions/${session.id}/review`, 'POST', undefined, req),
                 bodyHint: {
                   decision: 'approve or rework',
                   note: 'Optional review feedback',
                 },
-                prerequisite: actionRequest(`/sessions/${session.id}/code`, 'GET'),
+                prerequisite: actionRequest(`/sessions/${session.id}/code`, 'GET', undefined, req),
               },
             }
           );
@@ -457,7 +466,7 @@ export async function POST(req: NextRequest) {
             type: 'finalize_game',
             reason: 'Session is ready for finalization.',
             sessionId: session.id,
-            request: actionRequest(`/sessions/${session.id}/finalize`, 'POST'),
+            request: actionRequest(`/sessions/${session.id}/finalize`, 'POST', undefined, req),
           }
         );
       }
@@ -507,7 +516,7 @@ export async function POST(req: NextRequest) {
           type: 'join_session',
           reason: 'A joinable active session exists.',
           sessionId: joinable.id,
-          request: actionRequest(`/sessions/${joinable.id}/join`, 'POST'),
+          request: actionRequest(`/sessions/${joinable.id}/join`, 'POST', undefined, req),
         }
       );
     }
@@ -522,7 +531,7 @@ export async function POST(req: NextRequest) {
           description: 'Autonomous collaborative game jam session',
           maxParticipants: 10,
           lineLimit: 80,
-        }),
+        }, req),
       }
     );
   } catch (error: unknown) {

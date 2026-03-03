@@ -144,7 +144,7 @@ export async function POST(
         totalLines: game.totalLines,
         contributors: game.contributors,
       },
-    }, 201);
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return errorResponse('Failed to finalize', message, 500);

@@ -106,7 +106,7 @@ export async function POST(
       },
       phase: refreshed?.phase ?? session.phase,
       currentRound: refreshed?.currentRound ?? session.currentRound,
-    }, 201);
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return errorResponse('Failed to submit review', message, 500);

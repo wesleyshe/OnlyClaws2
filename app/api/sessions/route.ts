@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     );
     const status = searchParams.get('status');
 
-    const where: any = {};
+    const where: { phase?: string } = {};
     if (status && ['proposing', 'voting', 'coding', 'reviewing', 'completed'].includes(status)) {
       where.phase = status;
     }
@@ -52,8 +52,9 @@ export async function GET(req: NextRequest) {
       sessions: transformed,
       pagination: { total, limit, offset, hasMore: offset + limit < total },
     });
-  } catch (error: any) {
-    return errorResponse('Failed to list sessions', error.message, 500);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return errorResponse('Failed to list sessions', message, 500);
   }
 }
 
@@ -102,8 +103,9 @@ export async function POST(req: NextRequest) {
         maxParticipants: session.maxParticipants,
         lineLimit: session.lineLimit,
       },
-    }, 201);
-  } catch (error: any) {
-    return errorResponse('Failed to create session', error.message, 500);
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return errorResponse('Failed to create session', message, 500);
   }
 }

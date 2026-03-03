@@ -17,8 +17,9 @@ export async function GET(
     });
 
     return successResponse({ proposals });
-  } catch (error: any) {
-    return errorResponse('Failed to list proposals', error.message, 500);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return errorResponse('Failed to list proposals', message, 500);
   }
 }
 
@@ -88,8 +89,9 @@ export async function POST(
         description: proposal.description,
         genre: proposal.genre,
       },
-    }, 201);
-  } catch (error: any) {
-    return errorResponse('Failed to create proposal', error.message, 500);
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return errorResponse('Failed to create proposal', message, 500);
   }
 }

@@ -183,7 +183,7 @@ export async function POST(
         ...validation.warnings,
         ...health.issues,
       ],
-    }, 201);
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return errorResponse('Failed to contribute', message, 500);
