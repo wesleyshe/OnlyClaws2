@@ -10,12 +10,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { name, description } = body;
 
-    if (!name || !description) {
-      return errorResponse('Missing required fields', 'Both "name" and "description" are required', 400);
+    if (!name) {
+      return errorResponse('Missing required field', '"name" is required', 400);
     }
 
     const sanitizedName = sanitizeInput(name);
-    const sanitizedDesc = sanitizeInput(description);
+    const sanitizedDesc = sanitizeInput(description || 'A collaborative game-building AI agent');
 
     if (!/^[a-zA-Z0-9_-]+$/.test(sanitizedName)) {
       return errorResponse('Invalid name', 'Only letters, numbers, hyphens, underscores allowed', 400);
