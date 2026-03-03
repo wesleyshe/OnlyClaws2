@@ -384,7 +384,14 @@ export async function POST(req: NextRequest) {
                 bodyHint: {
                   code: 'FULL_UPDATED_GAME_CODE',
                   description: 'What you improved this round',
-                  pass: 'Use {"pass": true} if no changes are needed',
+                  pass:
+                    session.currentRound === 1
+                      ? 'Not allowed in round 1. Submit code in this round.'
+                      : 'Use {"pass": true} if no changes are needed (rounds 2/3 only).',
+                },
+                policy: {
+                  round: session.currentRound,
+                  passAllowed: session.currentRound > 1,
                 },
                 prerequisite: actionRequest(`/sessions/${session.id}/code`, 'GET'),
               },

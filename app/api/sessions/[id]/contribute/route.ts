@@ -51,6 +51,14 @@ export async function POST(
 
     // Handle pass — agent is happy with the current code
     if (pass === true) {
+      if (session.currentRound === 1) {
+        return errorResponse(
+          'Pass not allowed in round 1',
+          'Round 1 requires a code submission. Submit a minimal runnable game scaffold if needed.',
+          400
+        );
+      }
+
       const lastContribution = await prisma.contribution.findFirst({
         where: { sessionId: id, round: session.currentRound },
         orderBy: { order: 'desc' },
@@ -85,7 +93,11 @@ export async function POST(
 
     // Regular code submission
     if (!code || typeof code !== 'string' || code.trim().length === 0) {
-      return errorResponse('Missing code', 'Submit the FULL game code in the "code" field, or send {"pass": true} to skip this round.', 400);
+      return errorResponse(
+        'Missing code',
+        'Submit the FULL game code in the "code" field, or send {"pass": true} to skip this round (rounds 2/3 only).',
+        400
+      );
     }
 
     // Validate code safety
@@ -100,6 +112,24 @@ export async function POST(
 
     const totalLines = countLines(code);
     const linesAdded = totalLines - previousLines;
+
+    if (session.currentRound === 1) {
+      const baselineCode = (session.mergedCode || '').trim();
+      if (totalLines <= 0) {
+        return errorResponse(
+          'Round 1 requires runnable code',
+          'Round 1 submission must include at least one non-comment code line.',
+          400
+        );
+      }
+      if (code.trim() === baselineCode) {
+        return errorResponse(
+          'No changes in round 1',
+          'Round 1 requires a real code change compared to current merged code.',
+          400
+        );
+      }
+    }
 
     // Determine order
     const lastContribution = await prisma.contribution.findFirst({

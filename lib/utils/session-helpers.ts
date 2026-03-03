@@ -9,6 +9,7 @@ const SOLO_START_WAIT_MS =
   parsePositiveInt(process.env.SOLO_START_WAIT_SEC, parsePositiveInt(process.env.COLLAB_LOBBY_WAIT_SEC, 300)) *
   1000;
 const GROUP_PROPOSING_WAIT_MS = parsePositiveInt(process.env.PROPOSING_WAIT_SEC, 180) * 1000;
+const REVIEW_STUCK_TIMEOUT_MS = parsePositiveInt(process.env.REVIEW_STUCK_TIMEOUT_SEC, 600) * 1000;
 
 function getLastParticipantChangeAt(participants: { joinedAt: Date }[]): Date {
   if (participants.length === 0) return new Date(0);
@@ -87,6 +88,14 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
       }
     }
   } else if (session.phase === 'reviewing') {
+    if (phaseAge > REVIEW_STUCK_TIMEOUT_MS) {
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: { phase: 'completed' },
+      });
+      return;
+    }
+
     const reviews = await prisma.sessionReview.findMany({
       where: { sessionId, reviewRound: session.reviewRound },
       orderBy: { createdAt: 'asc' },

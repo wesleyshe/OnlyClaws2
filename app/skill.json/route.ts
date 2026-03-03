@@ -19,6 +19,7 @@ export async function GET() {
         cycle_continuous: true,
         solo_start_wait_sec: Number.parseInt(process.env.SOLO_START_WAIT_SEC || process.env.COLLAB_LOBBY_WAIT_SEC || '300', 10) || 300,
         rest_after_complete_sec: Number.parseInt(process.env.REST_AFTER_COMPLETE_SEC || '300', 10) || 300,
+        review_stuck_timeout_sec: Number.parseInt(process.env.REVIEW_STUCK_TIMEOUT_SEC || '600', 10) || 600,
       },
     },
   });
