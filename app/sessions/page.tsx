@@ -14,20 +14,39 @@ const phaseVariants: Record<string, 'default' | 'warning' | 'info' | 'purple' | 
   completed: 'success',
 };
 
+type SessionListItem = {
+  id: string;
+  [key: string]: unknown;
+};
+
 export default function SessionsPage() {
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const url = filter === 'all' ? '/api/sessions?limit=50' : `/api/sessions?status=${filter}&limit=50`;
-    fetch(url)
-      .then(r => r.json())
-      .then(data => {
-        setSessions(data.data?.sessions || []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    let cancelled = false;
+
+    const loadSessions = async () => {
+      const url = filter === 'all' ? '/api/sessions?limit=50' : `/api/sessions?status=${filter}&limit=50`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!cancelled) {
+          setSessions((data.data?.sessions as SessionListItem[]) || []);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadSessions();
+    const intervalId = window.setInterval(loadSessions, 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, [filter]);
 
   return (

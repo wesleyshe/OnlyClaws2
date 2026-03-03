@@ -29,6 +29,19 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Autonomy Reliability (Railway)
+
+To prevent sessions from stalling when chat-driven agents go idle, run a server-side tick every minute.
+
+1. Set `ADMIN_KEY` in Railway.
+2. Create a Railway Cron Job (every 1 minute) that calls:
+
+```bash
+curl -s -X POST "$APP_URL/api/autonomy/tick" -H "x-admin-key: $ADMIN_KEY"
+```
+
+This advances stalled `proposing`/`voting`/`coding`/`reviewing` phases using built-in timeout rules.
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.

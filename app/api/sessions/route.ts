@@ -42,8 +42,23 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const refreshedSessions = await prisma.session.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: limit,
+      include: {
+        participants: {
+          include: {
+            agent: { select: { id: true, name: true, avatarUrl: true, claimStatus: true } },
+          },
+        },
+        creatorAgent: { select: { id: true, name: true } },
+      },
+    });
+
     // Flatten participant data
-    const transformed = sessions.map(s => ({
+    const transformed = refreshedSessions.map(s => ({
       ...s,
       participants: s.participants.map(p => p.agent),
     }));

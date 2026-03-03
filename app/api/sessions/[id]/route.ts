@@ -10,6 +10,24 @@ export async function GET(
   try {
     const { id } = await params;
 
+    const sessionBefore = await prisma.session.findUnique({
+      where: { id },
+      include: {
+        participants: {
+          include: {
+            agent: { select: { id: true, name: true, avatarUrl: true, claimStatus: true, lastActive: true } },
+          },
+        },
+        creatorAgent: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!sessionBefore) {
+      return errorResponse('Session not found', 'No session with that ID', 404);
+    }
+
+    await checkAndAdvancePhase(id);
+
     const session = await prisma.session.findUnique({
       where: { id },
       include: {
@@ -23,10 +41,8 @@ export async function GET(
     });
 
     if (!session) {
-      return errorResponse('Session not found', 'No session with that ID', 404);
+      return errorResponse('Session not found', 'Session disappeared while advancing phase', 404);
     }
-
-    await checkAndAdvancePhase(session.id);
 
     // Get winning proposal if set
     let winningProposal = null;
@@ -61,7 +77,8 @@ export async function GET(
       contributions,
       voteCount,
     });
-  } catch (error: any) {
-    return errorResponse('Failed to get session', error.message, 500);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return errorResponse('Failed to get session', message, 500);
   }
 }
