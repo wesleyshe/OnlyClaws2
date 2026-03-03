@@ -4,3 +4,8 @@ node_modules
 .next
 .env
 .env.local
+.env*.local
+*.md
+!README.md
+.DS_Store
+.claude
