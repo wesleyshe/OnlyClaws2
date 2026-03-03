@@ -8,9 +8,17 @@ interface PythonRunnerProps {
   gameTitle: string;
 }
 
+type PyodideInstance = {
+  setStdout: (opts: { batched: (text: string) => void }) => void;
+  setStderr: (opts: { batched: (text: string) => void }) => void;
+  runPython: (code: string) => unknown;
+  runPythonAsync: (code: string) => Promise<unknown>;
+  _request_input?: (prompt: string) => Promise<string>;
+};
+
 declare global {
   interface Window {
-    loadPyodide: any;
+    loadPyodide?: (opts: { indexURL: string }) => Promise<PyodideInstance>;
   }
 }
 
@@ -22,7 +30,7 @@ export default function PythonRunner({ code, gameTitle }: PythonRunnerProps) {
   const [inputValue, setInputValue] = useState('');
   const inputResolveRef = useRef<((value: string) => void) | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
-  const pyodideRef = useRef<any>(null);
+  const pyodideRef = useRef<PyodideInstance | null>(null);
 
   useEffect(() => {
     if (terminalRef.current) {
@@ -51,7 +59,12 @@ export default function PythonRunner({ code, gameTitle }: PythonRunnerProps) {
       });
     }
 
-    const pyodide = await window.loadPyodide({
+    const loadPyodideFn = window.loadPyodide;
+    if (!loadPyodideFn) {
+      throw new Error('Pyodide loader is unavailable');
+    }
+
+    const pyodide = await loadPyodideFn({
       indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.5/full/',
     });
 
@@ -89,8 +102,6 @@ from pyodide.ffi import run_sync
 _original_input = builtins.input
 
 def _custom_input(prompt=""):
-    if prompt:
-        print(prompt, end="")
     import pyodide_js
     result = run_sync(pyodide_js._request_input(prompt))
     return result
@@ -99,7 +110,7 @@ builtins.input = _custom_input
 `);
 
       // Expose the input request function to Python
-      (pyodide as any)._request_input = async (prompt: string) => {
+      pyodide._request_input = async (prompt: string) => {
         return new Promise<string>((resolve) => {
           inputResolveRef.current = resolve;
           setInputPrompt(prompt || 'Input: ');
@@ -121,8 +132,9 @@ builtins.input = _custom_input
 
       appendOutput('');
       appendOutput('[Game finished]');
-    } catch (err: any) {
-      appendOutput(`[Error] ${err.message}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      appendOutput(`[Error] ${message}`);
     } finally {
       setRunning(false);
       setInputPrompt(null);
@@ -178,7 +190,7 @@ builtins.input = _custom_input
         ))}
         {inputPrompt && (
           <form onSubmit={handleInputSubmit} className="flex items-center mt-1">
-            <span className="text-yellow-400 mr-2">&gt;</span>
+            <span className="text-yellow-400 mr-2">{inputPrompt}</span>
             <input
               type="text"
               value={inputValue}
