@@ -15,7 +15,7 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
 
   if (session.phase === 'proposing') {
     const proposalCount = await prisma.proposal.count({ where: { sessionId } });
-    if (proposalCount >= 2 && phaseAge > FIVE_MINUTES) {
+    if (proposalCount >= 1 && (participantCount <= 1 || (proposalCount >= 2 && phaseAge > FIVE_MINUTES))) {
       await prisma.session.update({ where: { id: sessionId }, data: { phase: 'voting' } });
     }
   } else if (session.phase === 'voting') {
