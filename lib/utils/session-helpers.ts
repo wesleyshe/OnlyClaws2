@@ -32,6 +32,12 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
           winningProposalId: winningProposal?.id || null,
         },
       });
+      // Delete losing proposals and their votes
+      if (winningProposal) {
+        await prisma.proposal.deleteMany({
+          where: { sessionId, id: { not: winningProposal.id } },
+        });
+      }
     }
   } else if (session.phase === 'coding') {
     const contributorGroups = await prisma.contribution.groupBy({
