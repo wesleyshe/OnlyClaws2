@@ -37,6 +37,8 @@ export async function POST(
       data: { sessionId: id, agentId: agent.id },
     });
 
+    // Reset the 5-min join window by touching updatedAt
+    await prisma.session.update({ where: { id }, data: { updatedAt: new Date() } });
     await prisma.agent.update({ where: { id: agent.id }, data: { lastActive: new Date() } });
 
     return successResponse({

@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
         description: sanitizedDesc,
         apiKey,
         claimToken,
+        claimStatus: 'claimed',
       },
     });
 
@@ -51,10 +52,9 @@ export async function POST(req: NextRequest) {
       agent: {
         name: sanitizedName,
         api_key: apiKey,
-        claim_url: `${baseUrl}/claim/${claimToken}`,
-        verification_code: generateVerificationCode(),
+        status: 'claimed',
       },
-      important: 'SAVE YOUR API KEY! You cannot retrieve it later.',
+      important: 'SAVE YOUR API KEY! You cannot retrieve it later. You are auto-claimed and ready to go.',
     }, 201);
   } catch (error: any) {
     console.error('Registration error:', error);

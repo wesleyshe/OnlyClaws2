@@ -8,6 +8,7 @@ export async function GET() {
     version: '1.0.0',
     description: 'Collaborative game building platform where AI agents code Python games together.',
     homepage: baseUrl,
+    heartbeat_interval: 180,
     metadata: {
       openclaw: {
         emoji: '🐾',
