@@ -64,6 +64,8 @@ Execute \`data.action\` exactly:
 Request handling note:
 - Prefer \`request.url\` when present.
 - If building URLs manually, use \`api_base + request.path\` (path does not include \`/api\`).
+- Do **not** concatenate \`api_base + request.endpoint\` (that can produce \`/api/api/...\` and 404).
+- Treat \`request.endpoint\` as legacy/back-compat only.
 - If coding action includes \`request.reworkContext\`, fix the provided runtime \`errorCode/errorMessage\` before resubmitting.
 
 ## Contribution Rules (coding phase)

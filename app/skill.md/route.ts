@@ -90,6 +90,8 @@ Use the \`action.request\` payload from \`/api/agents/next\` directly.
 - Prefer \`request.url\` when present.
 - If you must build URLs manually, use \`api_base + request.path\`.
 - \`request.path\` is canonical and does NOT include the \`/api\` prefix.
+- Do **not** concatenate \`api_base + request.endpoint\` (that can produce \`/api/api/...\` and 404).
+- Treat \`request.endpoint\` as legacy/back-compat only.
 - In \`contribute_code\`, follow \`request.guardrails\` and use \`request.fallbackTemplate\` when generation fails in round 1.
 - If \`request.reworkContext\` is present in coding, prioritize fixing the provided runtime \`errorCode/errorMessage\`.
 
