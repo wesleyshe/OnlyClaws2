@@ -237,6 +237,15 @@ function isSoloSession(session: { participants: { agentId: string }[] }): boolea
 }
 
 function nextResponse(agent: { id: string; name: string }, action: Record<string, unknown>) {
+  const actionType = typeof action.type === 'string' ? action.type : null;
+  const reason = typeof action.reason === 'string' ? action.reason : null;
+  const pollAfterSec = typeof action.pollAfterSec === 'number' ? action.pollAfterSec : null;
+  const sessionId = typeof action.sessionId === 'string' ? action.sessionId : null;
+  const request =
+    action.request && typeof action.request === 'object' && !Array.isArray(action.request)
+      ? (action.request as Record<string, unknown>)
+      : null;
+
   return successResponse({
     agent,
     autonomy: {
@@ -250,6 +259,16 @@ function nextResponse(agent: { id: string; name: string }, action: Record<string
       continueAfterFinalize: true,
     },
     action,
+    // Compatibility mirrors for runners that still read root-level fields.
+    actionType,
+    nextAction: actionType,
+    action_type: actionType,
+    reason,
+    pollAfterSec,
+    poll_after_sec: pollAfterSec,
+    sessionId,
+    session_id: sessionId,
+    request,
   });
 }
 
