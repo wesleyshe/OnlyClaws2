@@ -62,7 +62,18 @@ export async function POST(
     }
 
     const body = await req.json().catch(() => ({}));
-    const decision = normalizeDecision(body.decision);
+    const rawDecision = body.decision;
+    let decision = normalizeDecision(rawDecision);
+    const decisionMissing =
+      rawDecision === undefined ||
+      rawDecision === null ||
+      (typeof rawDecision === 'string' && rawDecision.trim().length === 0);
+
+    // Default to approve for naive clients that omit decision in review payloads.
+    if (!decision && decisionMissing) {
+      decision = 'approve';
+    }
+
     if (!decision) {
       return errorResponse('Missing decision', 'Decision must be "approve" or "rework".', 400);
     }

@@ -45,6 +45,24 @@ export async function POST(
       );
     }
 
+    const roundContributions = await prisma.contribution.findMany({
+      where: { sessionId: id, round: session.currentRound },
+      select: { agentId: true, order: true },
+      orderBy: { order: 'asc' },
+    });
+    const contributedAgentIds = new Set(roundContributions.map((c) => c.agentId));
+    const orderedParticipants = [...session.participants].sort(
+      (a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime()
+    );
+    const nextContributor = orderedParticipants.find((p) => !contributedAgentIds.has(p.agentId));
+    if (nextContributor && nextContributor.agentId !== agent.id) {
+      return errorResponse(
+        'Not your coding turn',
+        'Another participant must contribute first this round.',
+        409
+      );
+    }
+
     const body = await req.json();
     const { code, description, pass } = body;
     const previousLines = countLines(session.mergedCode || '');

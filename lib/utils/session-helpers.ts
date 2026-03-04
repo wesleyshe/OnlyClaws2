@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { checkGameHealth, validatePythonCode } from '@/lib/utils/code-validator';
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value || '', 10);
@@ -46,6 +47,111 @@ function getLastParticipantChangeAt(participants: { joinedAt: Date }[]): Date {
 function countLines(code: string): number {
   const lines = code.split('\n').filter((line) => line.trim().length > 0);
   return lines.length;
+}
+
+async function tryFinalizeSessionAfterReviewTimeout(sessionId: string): Promise<boolean> {
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    include: { participants: true },
+  });
+  if (!session || !session.mergedCode || session.mergedCode.trim().length === 0) return false;
+
+  const existingGame = await prisma.game.findUnique({ where: { sessionId } });
+  if (existingGame) {
+    await prisma.session.update({ where: { id: sessionId }, data: { phase: 'completed' } });
+    return true;
+  }
+
+  const reviews = await prisma.sessionReview.findMany({
+    where: { sessionId, reviewRound: session.reviewRound },
+  });
+  if (reviews.some((r) => r.decision === 'rework')) return false;
+
+  const reviewedAgentIds = new Set(reviews.map((r) => r.agentId));
+  const missingReviewers = session.participants.filter((p) => !reviewedAgentIds.has(p.agentId));
+  for (const reviewer of missingReviewers) {
+    try {
+      await prisma.sessionReview.create({
+        data: {
+          sessionId,
+          agentId: reviewer.agentId,
+          reviewRound: session.reviewRound,
+          decision: 'approve',
+          note: 'Auto-approved due to review timeout.',
+        },
+      });
+    } catch {
+      // Ignore race conditions if a real review is submitted concurrently.
+    }
+  }
+
+  const validation = validatePythonCode(session.mergedCode);
+  if (!validation.valid) return false;
+
+  const health = checkGameHealth(session.mergedCode);
+  if (!health.runnable) return false;
+
+  let title = session.title;
+  let description = '';
+  let genre = 'other';
+  if (session.winningProposalId) {
+    const proposal = await prisma.proposal.findUnique({
+      where: { id: session.winningProposalId },
+    });
+    if (proposal) {
+      title = proposal.title;
+      description = proposal.description;
+      genre = proposal.genre;
+    }
+  }
+
+  const contributions = await prisma.contribution.findMany({
+    where: { sessionId },
+    include: { agent: { select: { id: true, name: true } } },
+  });
+
+  const contributorMap = new Map<string, { agentId: string; agentName: string; lines: number }>();
+  for (const c of contributions) {
+    const existing = contributorMap.get(c.agentId);
+    if (existing) {
+      existing.lines += c.lineCount;
+    } else {
+      contributorMap.set(c.agentId, {
+        agentId: c.agentId,
+        agentName: c.agent.name,
+        lines: c.lineCount,
+      });
+    }
+  }
+
+  const contributorsList = Array.from(contributorMap.values());
+  const totalLines = contributorsList.reduce((sum, c) => sum + c.lines, 0);
+
+  try {
+    await prisma.game.create({
+      data: {
+        sessionId,
+        title,
+        description,
+        genre,
+        code: session.mergedCode,
+        totalLines,
+        contributors: {
+          create: contributorsList.map((c) => ({
+            agentId: c.agentId,
+            agentName: c.agentName,
+            linesContributed: c.lines,
+          })),
+        },
+      },
+    });
+  } catch {
+    const game = await prisma.game.findUnique({ where: { sessionId } });
+    if (!game) return false;
+  }
+
+  await prisma.session.update({ where: { id: sessionId }, data: { phase: 'completed' } });
+  return true;
 }
 
 export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
@@ -132,7 +238,9 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
     });
     if (contributorGroups.length < participantCount && phaseAge > CODING_ROUND_TIMEOUT_MS) {
       const contributedAgentIds = new Set(contributorGroups.map((g) => g.agentId));
-      const missingParticipants = session.participants.filter((p) => !contributedAgentIds.has(p.agentId));
+      const missingParticipants = [...session.participants]
+        .sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime())
+        .filter((p) => !contributedAgentIds.has(p.agentId));
 
       if (missingParticipants.length > 0) {
         let mergedCode = session.mergedCode || '';
@@ -199,14 +307,6 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
       }
     }
   } else if (session.phase === 'reviewing') {
-    if (phaseAge > REVIEW_STUCK_TIMEOUT_MS) {
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { phase: 'completed' },
-      });
-      return;
-    }
-
     const reviews = await prisma.sessionReview.findMany({
       where: { sessionId, reviewRound: session.reviewRound },
       orderBy: { createdAt: 'asc' },
@@ -225,6 +325,17 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
           reviewRound: session.reviewRound + 1,
         },
       });
+      return;
+    }
+
+    if (phaseAge > REVIEW_STUCK_TIMEOUT_MS) {
+      const finalized = await tryFinalizeSessionAfterReviewTimeout(sessionId);
+      if (!finalized) {
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { phase: 'completed' },
+        });
+      }
     }
   }
 }

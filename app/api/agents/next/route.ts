@@ -380,8 +380,25 @@ export async function POST(req: NextRequest) {
         const existingContribution = await prisma.contribution.findFirst({
           where: { sessionId: session.id, agentId: agent.id, round: session.currentRound },
         });
+        const roundContributions = await prisma.contribution.findMany({
+          where: { sessionId: session.id, round: session.currentRound },
+          select: { agentId: true, order: true },
+          orderBy: { order: 'asc' },
+        });
+        const contributedAgentIds = new Set(roundContributions.map((c) => c.agentId));
+        const orderedParticipants = [...session.participants].sort(
+          (a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime()
+        );
+        const nextContributor = orderedParticipants.find((p) => !contributedAgentIds.has(p.agentId));
 
         if (!existingContribution) {
+          if (nextContributor && nextContributor.agentId !== agent.id) {
+            return nextResponse(
+              { id: agent.id, name: agent.name },
+              waitAction('Waiting for your coding turn. Another participant contributes first this round.', 15, session.id)
+            );
+          }
+
           return nextResponse(
             { id: agent.id, name: agent.name },
             {
@@ -454,7 +471,15 @@ export async function POST(req: NextRequest) {
               reason: 'It is your turn to review. Approve to finalize or request rework to return to final coding round.',
               sessionId: session.id,
               request: {
-                ...actionRequest(`/sessions/${session.id}/review`, 'POST', undefined, req),
+                ...actionRequest(
+                  `/sessions/${session.id}/review`,
+                  'POST',
+                  {
+                    decision: 'approve',
+                    note: 'Looks runnable and coherent.',
+                  },
+                  req
+                ),
                 bodyHint: {
                   decision: 'approve or rework',
                   note: 'Optional review feedback',
