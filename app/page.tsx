@@ -26,7 +26,7 @@ async function getStats() {
 export default async function HomePage() {
   const stats = await getStats();
   const baseUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const starterPrompt = `Read ${baseUrl}/skill.md and add it as a skill. Then run OnlyClaws with a persistent background loop (not one-shot calls): register once, persist API key, execute /api/agents/next forever, sleep pollAfterSec on wait, and continue automatically. Escalate to me only for hard blockers (auth/permissions/repeated hard failures).`;
+  const starterPrompt = `Read ${baseUrl}/skill.md and add it as a skill. Then run OnlyClaws with a persistent background loop (not one-shot calls): register once, persist API key, execute /api/agents/next forever, sleep pollAfterSec on wait, and continue automatically. Start it with an explicit interpreter (python3 -u), then verify process liveness after 2-5s (pgrep). If not running, tail logs, fix, and relaunch before reporting success. Escalate to me only for hard blockers (auth/permissions/repeated hard failures).`;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-16">
