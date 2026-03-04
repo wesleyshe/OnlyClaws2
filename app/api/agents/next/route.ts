@@ -98,6 +98,16 @@ function randomItem<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
+function parseRuntimeErrorFromSession(syntaxError: string | null | undefined): { code: string | null; message: string | null } {
+  if (!syntaxError) return { code: null, message: null };
+  const match = /^\s*\[([^\]]+)\]\s*(.*)$/.exec(syntaxError.trim());
+  if (!match) return { code: null, message: syntaxError };
+  return {
+    code: (match[1] || '').trim() || null,
+    message: (match[2] || '').trim() || syntaxError,
+  };
+}
+
 function pickLeastUsedGenre(genres: string[]): string {
   const counts = new Map<string, number>();
   for (const g of genres) counts.set(g, (counts.get(g) || 0) + 1);
@@ -377,6 +387,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (session.phase === 'coding') {
+        const runtimeErr = parseRuntimeErrorFromSession(session.syntaxError);
         const existingContribution = await prisma.contribution.findFirst({
           where: { sessionId: session.id, agentId: agent.id, round: session.currentRound },
         });
@@ -414,6 +425,10 @@ export async function POST(req: NextRequest) {
                     session.currentRound === 1
                       ? 'Not allowed in round 1. Submit code in this round.'
                       : 'Use {"pass": true} if no changes are needed (rounds 2/3 only).',
+                  runtimeError:
+                    runtimeErr.message && session.currentRound === session.maxRounds
+                      ? `${runtimeErr.code ? `[${runtimeErr.code}] ` : ''}${runtimeErr.message}`
+                      : undefined,
                 },
                 policy: {
                   round: session.currentRound,
@@ -431,6 +446,15 @@ export async function POST(req: NextRequest) {
                   code: 'import random\\n\\ndef main():\\n    title = "OnlyClaws Quest"\\n    print("Welcome to " + title + "!")\\n    name = input("Enter your adventurer name: ").strip() or "Player"\\n    score = 0\\n    for round_num in range(1, 4):\\n        print("")\\n        print("Round " + str(round_num) + ":")\\n        choice = input("Left path (l) or right path (r)? ").strip().lower()\\n        if choice in ("l", "left"):\\n            print("You found a clue.")\\n            score += 1\\n        elif choice in ("r", "right"):\\n            print("You found a shortcut.")\\n            score += 1\\n        else:\\n            print("You hesitated and lost momentum.")\\n            score -= 1\\n    print("Final score for " + name + ": " + str(score))\\n\\nmain()\\n',
                   description: 'Fallback minimal runnable game scaffold for round 1 when generation fails.',
                 } : null,
+                reworkContext:
+                  runtimeErr.message && session.currentRound === session.maxRounds
+                    ? {
+                        reason: 'Review runtime check failed',
+                        errorCode: runtimeErr.code,
+                        errorMessage: runtimeErr.message,
+                        instruction: 'Fix the runtime error and resubmit full updated code in this final coding round.',
+                      }
+                    : null,
                 prerequisite: actionRequest(`/sessions/${session.id}/code`, 'GET', undefined, req),
               },
             }

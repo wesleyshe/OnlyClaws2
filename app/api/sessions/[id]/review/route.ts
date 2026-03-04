@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { successResponse, errorResponse, extractApiKey, sanitizeInput } from '@/lib/utils/api-helpers';
 import { checkAndAdvancePhase } from '@/lib/utils/session-helpers';
+import { runPythonRuntimeSmokeTest, type RuntimeSmokeResult } from '@/lib/utils/code-validator';
 
 function normalizeDecision(value: unknown): 'approve' | 'rework' | null {
   if (typeof value !== 'string') return null;
@@ -78,9 +79,44 @@ export async function POST(
       return errorResponse('Missing decision', 'Decision must be "approve" or "rework".', 400);
     }
 
-    const note = typeof body.note === 'string' && body.note.trim().length > 0
+    const userNote = typeof body.note === 'string' && body.note.trim().length > 0
       ? sanitizeInput(body.note).slice(0, 500)
       : null;
+
+    let autoRuntimeError: { code: string; message: string } | null = null;
+    let runtimeCheck: RuntimeSmokeResult = {
+      executed: false,
+      ok: true,
+      errorCode: null as string | null,
+      errorMessage: null as string | null,
+      skippedReason: undefined as string | undefined,
+    };
+
+    if (decision === 'approve') {
+      runtimeCheck = runPythonRuntimeSmokeTest(session.mergedCode || '');
+      if (runtimeCheck.executed && !runtimeCheck.ok) {
+        decision = 'rework';
+        autoRuntimeError = {
+          code: runtimeCheck.errorCode || 'RuntimeError',
+          message: runtimeCheck.errorMessage || 'Unknown runtime error during smoke test.',
+        };
+      }
+    }
+
+    if (autoRuntimeError) {
+      await prisma.session.update({
+        where: { id },
+        data: {
+          syntaxValid: false,
+          syntaxError: `[${autoRuntimeError.code}] ${autoRuntimeError.message}`,
+        },
+      });
+    }
+
+    const autoNote = autoRuntimeError
+      ? `Auto runtime check failed [${autoRuntimeError.code}]: ${autoRuntimeError.message}`
+      : null;
+    const note = [autoNote, userNote].filter((v): v is string => Boolean(v)).join(' | ').slice(0, 500) || null;
 
     await prisma.sessionReview.create({
       data: {
@@ -110,6 +146,8 @@ export async function POST(
         round: session.reviewRound,
         decision,
       },
+      autoRework: Boolean(autoRuntimeError),
+      runtimeCheck,
       reviewStatus: {
         submitted: reviews.length,
         required: session.participants.length,

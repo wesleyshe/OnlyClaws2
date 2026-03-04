@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+
 const BLOCKED_PATTERNS: { pattern: RegExp; reason: string }[] = [
   { pattern: /\bimport\s+os\b/, reason: 'os module is not allowed' },
   { pattern: /\bfrom\s+os\b/, reason: 'os module is not allowed' },
@@ -195,6 +197,130 @@ export function countLines(code: string): number {
 export interface GameHealthResult {
   runnable: boolean;
   issues: string[];
+}
+
+export interface RuntimeSmokeResult {
+  executed: boolean;
+  ok: boolean;
+  errorCode: string | null;
+  errorMessage: string | null;
+  skippedReason?: string;
+}
+
+function extractPythonError(stderr: string): { code: string; message: string } {
+  const lines = stderr
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  const last = lines[lines.length - 1] || 'RuntimeError: Unknown runtime error';
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)(?::\s*(.*))?$/.exec(last);
+  if (match) {
+    return {
+      code: match[1] || 'RuntimeError',
+      message: (match[2] || last).trim(),
+    };
+  }
+  return { code: 'RuntimeError', message: last };
+}
+
+export function runPythonRuntimeSmokeTest(code: string): RuntimeSmokeResult {
+  if (!code || code.trim().length === 0) {
+    return {
+      executed: true,
+      ok: false,
+      errorCode: 'NoCodeError',
+      errorMessage: 'No code available to execute.',
+    };
+  }
+
+  const pythonBin = process.env.REVIEW_PYTHON_BIN || 'python3';
+  const timeoutMs = Number.parseInt(process.env.REVIEW_RUNTIME_TIMEOUT_MS || '2500', 10) || 2500;
+  const maxBuffer = Number.parseInt(process.env.REVIEW_RUNTIME_MAX_BUFFER_BYTES || '262144', 10) || 262144;
+
+  const inputSeed = ['1', 'left', '2', 'right', '3', 'left', '', '', ''];
+  const indented = code
+    .split('\n')
+    .map((line) => `    ${line}`)
+    .join('\n');
+
+  const harness = `
+import builtins
+import sys
+
+_oc_inputs = iter(${JSON.stringify(inputSeed)})
+_oc_steps = 0
+_oc_max_steps = 300
+
+def _oc_input(prompt=""):
+    global _oc_steps
+    _oc_steps += 1
+    if _oc_steps > _oc_max_steps:
+        raise RuntimeError("Input step budget exceeded")
+    try:
+        sys.stdout.write(str(prompt))
+        sys.stdout.flush()
+    except Exception:
+        pass
+    try:
+        return next(_oc_inputs)
+    except StopIteration:
+        return ""
+
+builtins.input = _oc_input
+
+${indented}
+`.trim();
+
+  const proc = spawnSync(pythonBin, ['-I', '-S', '-c', harness], {
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    maxBuffer,
+  });
+
+  if (proc.error) {
+    const err = proc.error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
+      return {
+        executed: false,
+        ok: true,
+        errorCode: null,
+        errorMessage: null,
+        skippedReason: `${pythonBin} not available`,
+      };
+    }
+    if ((err as Error).name === 'Error' && /timed out/i.test(err.message)) {
+      return {
+        executed: true,
+        ok: false,
+        errorCode: 'TimeoutError',
+        errorMessage: `Runtime check exceeded ${timeoutMs}ms.`,
+      };
+    }
+    return {
+      executed: true,
+      ok: false,
+      errorCode: err.code || 'RuntimeExecError',
+      errorMessage: err.message || 'Unknown runtime execution error.',
+    };
+  }
+
+  if ((proc.status ?? 0) !== 0) {
+    const parsed = extractPythonError(proc.stderr || '');
+    return {
+      executed: true,
+      ok: false,
+      errorCode: parsed.code,
+      errorMessage: parsed.message,
+    };
+  }
+
+  return {
+    executed: true,
+    ok: true,
+    errorCode: null,
+    errorMessage: null,
+  };
 }
 
 export function checkGameHealth(mergedCode: string): GameHealthResult {
