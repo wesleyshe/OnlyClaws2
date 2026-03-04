@@ -4,6 +4,13 @@ import { successResponse, errorResponse, extractApiKey } from '@/lib/utils/api-h
 import { validatePythonCode, countLines, checkGameHealth } from '@/lib/utils/code-validator';
 import { checkAndAdvancePhase } from '@/lib/utils/session-helpers';
 
+function isTimeoutAutoContributionDescription(description: string | null | undefined): boolean {
+  return (
+    description === 'Auto-pass due to round timeout.' ||
+    description === 'Auto-generated minimal round-1 scaffold due to timeout.'
+  );
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -36,8 +43,11 @@ export async function POST(
     // Check if agent already contributed this round
     const alreadyContributed = await prisma.contribution.findFirst({
       where: { sessionId: id, agentId: agent.id, round: session.currentRound },
+      select: { id: true, order: true, description: true },
     });
-    if (alreadyContributed) {
+    const canReplaceTimeoutAutofill =
+      !!alreadyContributed && isTimeoutAutoContributionDescription(alreadyContributed.description);
+    if (alreadyContributed && !canReplaceTimeoutAutofill) {
       return errorResponse(
         'Already contributed this round',
         `You already submitted code for round ${session.currentRound}. Wait for other agents to finish this round.`,
@@ -77,23 +87,34 @@ export async function POST(
         );
       }
 
-      const lastContribution = await prisma.contribution.findFirst({
-        where: { sessionId: id, round: session.currentRound },
-        orderBy: { order: 'desc' },
-      });
-      const order = lastContribution ? lastContribution.order + 1 : 1;
+      if (canReplaceTimeoutAutofill && alreadyContributed) {
+        await prisma.contribution.update({
+          where: { id: alreadyContributed.id },
+          data: {
+            code: session.mergedCode || '',
+            lineCount: previousLines,
+            description: 'Passed — no changes',
+          },
+        });
+      } else {
+        const lastContribution = await prisma.contribution.findFirst({
+          where: { sessionId: id, round: session.currentRound },
+          orderBy: { order: 'desc' },
+        });
+        const order = lastContribution ? lastContribution.order + 1 : 1;
 
-      await prisma.contribution.create({
-        data: {
-          sessionId: id,
-          agentId: agent.id,
-          code: session.mergedCode || '',
-          lineCount: previousLines,
-          round: session.currentRound,
-          order,
-          description: 'Passed — no changes',
-        },
-      });
+        await prisma.contribution.create({
+          data: {
+            sessionId: id,
+            agentId: agent.id,
+            code: session.mergedCode || '',
+            lineCount: previousLines,
+            round: session.currentRound,
+            order,
+            description: 'Passed — no changes',
+          },
+        });
+      }
 
       await prisma.agent.update({ where: { id: agent.id }, data: { lastActive: new Date() } });
       await checkAndAdvancePhase(id);
@@ -150,24 +171,38 @@ export async function POST(
     }
 
     // Determine order
-    const lastContribution = await prisma.contribution.findFirst({
-      where: { sessionId: id, round: session.currentRound },
-      orderBy: { order: 'desc' },
-    });
-    const order = lastContribution ? lastContribution.order + 1 : 1;
+    let contribution: { id: string; round: number; order: number };
+    if (canReplaceTimeoutAutofill && alreadyContributed) {
+      contribution = await prisma.contribution.update({
+        where: { id: alreadyContributed.id },
+        data: {
+          code,
+          lineCount: totalLines,
+          description: description || null,
+        },
+        select: { id: true, round: true, order: true },
+      });
+    } else {
+      const lastContribution = await prisma.contribution.findFirst({
+        where: { sessionId: id, round: session.currentRound },
+        orderBy: { order: 'desc' },
+      });
+      const order = lastContribution ? lastContribution.order + 1 : 1;
 
-    // Store contribution
-    const contribution = await prisma.contribution.create({
-      data: {
-        sessionId: id,
-        agentId: agent.id,
-        code,
-        lineCount: totalLines,
-        round: session.currentRound,
-        order,
-        description: description || null,
-      },
-    });
+      // Store contribution
+      contribution = await prisma.contribution.create({
+        data: {
+          sessionId: id,
+          agentId: agent.id,
+          code,
+          lineCount: totalLines,
+          round: session.currentRound,
+          order,
+          description: description || null,
+        },
+        select: { id: true, round: true, order: true },
+      });
+    }
 
     // Update the session's merged code
     await prisma.session.update({

@@ -13,6 +13,7 @@ const GROUP_PROPOSING_WAIT_MS = parsePositiveInt(process.env.PROPOSING_WAIT_SEC,
 const PROPOSING_STUCK_TIMEOUT_MS = parsePositiveInt(process.env.PROPOSING_STUCK_TIMEOUT_SEC, 420) * 1000;
 const VOTING_STUCK_TIMEOUT_MS = parsePositiveInt(process.env.VOTING_STUCK_TIMEOUT_SEC, 180) * 1000;
 const CODING_ROUND_TIMEOUT_MS = parsePositiveInt(process.env.CODING_ROUND_TIMEOUT_SEC, 180) * 1000;
+const CODING_AUTOFILL_GRACE_MS = parsePositiveInt(process.env.CODING_AUTOFILL_GRACE_SEC, 45) * 1000;
 const REVIEW_STUCK_TIMEOUT_MS = parsePositiveInt(process.env.REVIEW_STUCK_TIMEOUT_SEC, 600) * 1000;
 
 const FALLBACK_ROUND1_CODE = `import random
@@ -47,6 +48,13 @@ function getLastParticipantChangeAt(participants: { joinedAt: Date }[]): Date {
 function countLines(code: string): number {
   const lines = code.split('\n').filter((line) => line.trim().length > 0);
   return lines.length;
+}
+
+function isTimeoutAutoContributionDescription(description: string | null | undefined): boolean {
+  return (
+    description === 'Auto-pass due to round timeout.' ||
+    description === 'Auto-generated minimal round-1 scaffold due to timeout.'
+  );
 }
 
 async function tryFinalizeSessionAfterReviewTimeout(sessionId: string): Promise<boolean> {
@@ -287,11 +295,25 @@ export async function checkAndAdvancePhase(sessionId: string): Promise<void> {
       }
     }
 
-    const refreshedContributorGroups = await prisma.contribution.groupBy({
-      by: ['agentId'],
+    const refreshedRoundContributions = await prisma.contribution.findMany({
       where: { sessionId, round: session.currentRound },
+      select: { agentId: true, description: true, createdAt: true },
     });
-    if (refreshedContributorGroups.length >= participantCount) {
+    const refreshedContributorIds = new Set(refreshedRoundContributions.map((c) => c.agentId));
+    const timeoutAutoContributions = refreshedRoundContributions.filter((c) =>
+      isTimeoutAutoContributionDescription(c.description)
+    );
+    const latestTimeoutAutoCreatedAt = timeoutAutoContributions.reduce<Date | null>(
+      (latest, c) => (!latest || c.createdAt > latest ? c.createdAt : latest),
+      null
+    );
+    const timeoutGraceActive =
+      !!latestTimeoutAutoCreatedAt && now.getTime() - latestTimeoutAutoCreatedAt.getTime() < CODING_AUTOFILL_GRACE_MS;
+
+    if (refreshedContributorIds.size >= participantCount) {
+      if (timeoutGraceActive) {
+        return;
+      }
       if (session.currentRound < session.maxRounds) {
         // Move to next round
         await prisma.session.update({
